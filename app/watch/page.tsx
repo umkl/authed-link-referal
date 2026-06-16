@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const credentialsStorageKey = "authed-link-credentials";
@@ -42,8 +42,12 @@ async function readBlobWithProgress(
   response: Response,
   setProgress: (progress: number | null) => void,
   setDownloadedBytes: (downloadedBytes: number) => void,
+  expectedContentLength = 0,
 ) {
-  const contentLength = Number(response.headers.get("content-length") ?? 0);
+  const responseContentLength = Number(
+    response.headers.get("content-length") ?? 0,
+  );
+  const contentLength = responseContentLength || expectedContentLength;
   const contentType = response.headers.get("content-type") ?? "video/mp4";
 
   if (!response.body) {
@@ -66,8 +70,14 @@ async function readBlobWithProgress(
     receivedLength += value.length;
     setDownloadedBytes(receivedLength);
     setProgress(
-      contentLength ? Math.round((receivedLength / contentLength) * 100) : null,
+      contentLength
+        ? Math.min(Math.round((receivedLength / contentLength) * 100), 100)
+        : null,
     );
+  }
+
+  if (contentLength) {
+    setProgress(100);
   }
 
   return new Blob(chunks as any, { type: contentType });
@@ -75,7 +85,9 @@ async function readBlobWithProgress(
 
 export default function WatchPage() {
   const router = useRouter();
-  const [name, setName] = useState("Video");
+  const searchParams = useSearchParams();
+  const path = searchParams.get("path");
+  const name = searchParams.get("name") ?? "Video";
   const [videoUrl, setVideoUrl] = useState("");
   const [status, setStatus] = useState("Downloading video.");
   const [isLoading, setIsLoading] = useState(true);
@@ -85,12 +97,11 @@ export default function WatchPage() {
   useEffect(() => {
     let objectUrl = "";
     const abortController = new AbortController();
-    const params = new URLSearchParams(window.location.search);
-    const path = params.get("path");
-    const nextName = params.get("name") ?? "Video";
     const storedCredentials = window.localStorage.getItem(credentialsStorageKey);
 
-    setName(nextName);
+    setVideoUrl("");
+    setStatus("Downloading video.");
+    setIsLoading(true);
 
     if (!storedCredentials) {
       router.replace("/login");
@@ -108,15 +119,28 @@ export default function WatchPage() {
         setDownloadedBytes(0);
         setProgress(null);
         const credentials = JSON.parse(storedCredentials as any) as StoredCredentials;
-        const response = await fetch(
-          `/api/files?path=${encodeURIComponent(path as string)}`,
-          {
-            headers: {
-              Authorization: getAuthorizationHeader(credentials),
-            },
-            signal: abortController.signal,
-          },
+        const requestUrl = `/api/files?path=${encodeURIComponent(path)}`;
+        const requestHeaders = {
+          Authorization: getAuthorizationHeader(credentials),
+        };
+        const headResponse = await fetch(requestUrl, {
+          headers: requestHeaders,
+          method: "HEAD",
+          signal: abortController.signal,
+        });
+
+        const expectedContentLength = Number(
+          headResponse.headers.get("content-length") ?? 0,
         );
+
+        if (expectedContentLength) {
+          setProgress(0);
+        }
+
+        const response = await fetch(requestUrl, {
+          headers: requestHeaders,
+          signal: abortController.signal,
+        });
 
         if (response.status === 401) {
           window.localStorage.removeItem(credentialsStorageKey);
@@ -132,6 +156,7 @@ export default function WatchPage() {
           response,
           setProgress,
           setDownloadedBytes,
+          expectedContentLength,
         );
         objectUrl = window.URL.createObjectURL(blob);
         setVideoUrl(objectUrl);
@@ -156,7 +181,7 @@ export default function WatchPage() {
         window.URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [router]);
+  }, [path, router]);
 
   const downloadedMegabytes = (downloadedBytes / 1024 / 1024).toFixed(1);
   const progressLabel =

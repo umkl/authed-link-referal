@@ -18,7 +18,7 @@ function normalizeRequestPath(pathValue: string) {
   return pathValue.startsWith("/") ? pathValue : `/${pathValue}`;
 }
 
-export async function GET(request: NextRequest) {
+async function proxyFile(request: NextRequest, method: "GET" | "HEAD") {
   const authorization = request.headers.get("authorization");
   const requestPath = normalizeRequestPath(
     request.nextUrl.searchParams.get("path") ?? autoIndexPath,
@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
     headers: {
       Authorization: authorization,
     },
+    method,
     cache: "no-store",
   });
 
@@ -79,9 +80,17 @@ export async function GET(request: NextRequest) {
   responseHeaders.set("cache-control", "no-store");
   responseHeaders.set("x-file-proxy-source", "upstream");
 
-  return new Response(upstreamResponse.body, {
+  return new Response(method === "HEAD" ? null : upstreamResponse.body, {
     status: upstreamResponse.status,
     statusText: upstreamResponse.statusText,
     headers: responseHeaders,
   });
+}
+
+export async function GET(request: NextRequest) {
+  return proxyFile(request, "GET");
+}
+
+export async function HEAD(request: NextRequest) {
+  return proxyFile(request, "HEAD");
 }
