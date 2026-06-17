@@ -215,7 +215,7 @@ export default function FileExplorer() {
       path: fileEntry.path,
       name: fileEntry.name,
     });
-    router.push(`/watch?${params.toString()}`);
+    window.location.assign(`/watch?${params.toString()}`);
   }
 
   function goUp() {
