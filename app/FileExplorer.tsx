@@ -96,7 +96,6 @@ export default function FileExplorer() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [status, setStatus] = useState("Loading credentials.");
   const [isLoading, setIsLoading] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
 
   useEffect(() => {
     const storedCredentials = window.localStorage.getItem(credentialsStorageKey);
@@ -123,7 +122,6 @@ export default function FileExplorer() {
 
     async function loadDirectory() {
       setIsLoading(true);
-      setProgress(null);
       setStatus("Loading files.");
 
       try {
@@ -172,71 +170,44 @@ export default function FileExplorer() {
     return () => abortController.abort();
   }, [credentials, currentPath]);
 
-  async function readBlobWithProgress(response: Response) {
-    const contentLength = Number(response.headers.get("content-length") ?? 0);
-
-    if (!response.body || !contentLength) {
-      setProgress(null);
-      return response.blob();
-    }
-
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let receivedLength = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        break;
-      }
-
-      chunks.push(value);
-      receivedLength += value.length;
-      setProgress(Math.round((receivedLength / contentLength) * 100));
-    }
-
-    return new Blob(chunks as any);
+  function addHiddenInput(form: HTMLFormElement, name: string, value: string) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.append(input);
   }
 
-  async function downloadFile(fileEntry: FileEntry) {
+  function downloadFile(fileEntry: FileEntry) {
     if (!credentials) {
       return;
     }
 
-    setIsLoading(true);
-    setProgress(0);
-    setStatus(`Downloading ${fileEntry.name}.`);
+    const frameName = "native-download-frame";
+    const existingFrame = document.querySelector<HTMLIFrameElement>(
+      `iframe[name="${frameName}"]`,
+    );
+    const frame = existingFrame ?? document.createElement("iframe");
+    frame.name = frameName;
+    frame.hidden = true;
 
-    try {
-      const response = await fetch(
-        `/api/files?path=${encodeURIComponent(fileEntry.path)}`,
-        {
-          headers: {
-            Authorization: getAuthorizationHeader(credentials),
-          },
-        },
-      );
-
-      if (!response.ok) {
-        setStatus(await getResponseErrorMessage(response));
-        return;
-      }
-
-      const blob = await readBlobWithProgress(response);
-      const objectUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = fileEntry.name;
-      link.click();
-      window.URL.revokeObjectURL(objectUrl);
-      setStatus(`Downloaded ${fileEntry.name}.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Download failed.");
-    } finally {
-      setIsLoading(false);
-      setProgress(null);
+    if (!existingFrame) {
+      document.body.append(frame);
     }
+
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/files";
+    form.target = frameName;
+    form.hidden = true;
+
+    addHiddenInput(form, "path", fileEntry.path);
+    addHiddenInput(form, "email", credentials.email);
+    addHiddenInput(form, "password", credentials.password);
+
+    document.body.append(form);
+    form.submit();
+    form.remove();
   }
 
   function watchFile(fileEntry: FileEntry) {
@@ -292,14 +263,7 @@ export default function FileExplorer() {
 
           {isLoading ? (
             <div className="h-2 overflow-hidden rounded-full bg-neutral-800">
-              <div
-                className={
-                  progress === null
-                    ? "h-full w-1/3 animate-pulse rounded-full bg-cyan-400"
-                    : "h-full rounded-full bg-cyan-400 transition-all"
-                }
-                style={progress === null ? undefined : { width: `${progress}%` }}
-              />
+              <div className="h-full w-1/3 animate-pulse rounded-full bg-cyan-400" />
             </div>
           ) : null}
 
