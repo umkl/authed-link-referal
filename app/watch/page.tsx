@@ -114,12 +114,14 @@ export default function WatchPage() {
       return;
     }
 
+    const videoPath = path;
+
     async function loadVideo() {
       try {
         setDownloadedBytes(0);
         setProgress(null);
         const credentials = JSON.parse(storedCredentials as any) as StoredCredentials;
-        const requestUrl = `/api/files?path=${encodeURIComponent(path)}`;
+        const requestUrl = `/api/files?path=${encodeURIComponent(videoPath)}`;
         const requestHeaders = {
           Authorization: getAuthorizationHeader(credentials),
         };
